@@ -117,14 +117,62 @@ exports.getAllReservations = getAllReservations;
  * @return {Promise<[{}]>}  A promise to the properties.
  */
 const getAllProperties = function(options, limit = 10) {
-  const allPropQuery =`
-    SELECT *
-      FROM properties
-      LIMIT $1
+  const queryParams = [];
+  let allPropQuery =`
+    SELECT
+          properties.*
+        , AVG(property_reviews.rating) AS average_rating
+      FROM properties 
+        JOIN property_reviews ON property_reviews.property_id = properties.id
   `;
-  const paramValues = [limit];
+
+  // WHERE Filters
+  // We will replace the first AND with a WHERE after instead of replacing the WHEREs with AND,
+  // , then replace the first AND with WHERE
+  let whereFilters = '';
+
+  if (options.city) {
+    queryParams.push(`%${options.city}%`);
+    whereFilters += `AND city LIKE $${queryParams.length} `;
+  }
+
+  // Owner ID is never passed in per the client code
+  if (options.owner_id) {
+    queryParams.push(Number(options.owner_id));
+    whereFilters += `AND owner_id = $${queryParams.length} `;
+  }
+
+  if (options.minimum_price_per_night) {
+    queryParams.push(Number(options.minimum_price_per_night));
+    whereFilters += `AND cost_per_night >= $${queryParams.length} `;
+  }
+
+  if (options.maximum_price_per_night) {
+    queryParams.push(Number(options.maximum_price_per_night));
+    whereFilters += `AND cost_per_night <= $${queryParams.length} `;
+  }
+
+  whereFilters = whereFilters.replace(/AND/, 'WHERE')
+
+
+  allPropQuery += `${whereFilters} GROUP BY properties.id `;
+
+  // HAVING Filter
+  if (options.minimum_rating) {
+    queryParams.push(Number(options.minimum_rating));
+    allPropQuery += `HAVING AVG(property_reviews.rating) >= $${queryParams.length} `;
+  }
+
+  queryParams.push(limit);
+  allPropQuery += `
+    ORDER BY cost_per_night ASC
+    LIMIT $${queryParams.length};
+  `;
+
+  console.log(allPropQuery, queryParams);
+
   return (
-    pool.query(allPropQuery, paramValues)
+    pool.query(allPropQuery, queryParams)
       .then((res) => res.rows)
   );
   
